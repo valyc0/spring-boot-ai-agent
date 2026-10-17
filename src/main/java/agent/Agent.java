@@ -29,6 +29,8 @@ public class Agent {
         SpringApplication.run(Agent.class, args);
     }
 
+    static final boolean WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
+
     @Bean
     CommandLineRunner cli(ChatClient.Builder builder) {
         return args -> {
@@ -36,7 +38,8 @@ public class Agent {
             var in = new Scanner(System.in);
             var tools = new Tools(root, in, new int[1], MAX_ITERAZIONI, !"true".equalsIgnoreCase(System.getenv("AGENT_AUTO")));
             var chat = builder
-                .defaultSystem("Sei un coding agent. Lavori nella directory " + root + ". Usa i tool per esplorare, "
+                .defaultSystem("Sei un coding agent. Lavori nella directory " + root + " (OS: " + System.getProperty("os.name")
+                    + ", shell dei comandi: " + (WINDOWS ? "cmd" : "bash") + "). Usa i tool per esplorare, "
                     + "leggere, creare e modificare file e per compilare (es. 'mvn -q compile'). Se la compilazione "
                     + "fallisce correggi e riprova. Rispondi in modo breve alla fine."
                     + (Files.exists(root.resolve("AGENT.md")) ? "\n\nIstruzioni del progetto (AGENT.md):\n" + Files.readString(root.resolve("AGENT.md")) : ""))
@@ -91,7 +94,7 @@ public class Agent {
                 if (!Files.isDirectory(p(dir))) return "la directory non esiste";
                 try (Stream<Path> s = Files.walk(p(dir))) {
                     return s.filter(Files::isRegularFile)
-                        .map(x -> root.relativize(x).toString())
+                        .map(x -> root.relativize(x).toString().replace('\\', '/'))
                         .filter(x -> !x.startsWith(".git") && !x.startsWith("target"))
                         .limit(2000).collect(Collectors.joining("\n", "", "\n(fine elenco; se vuoto non ci sono file: crea pure i file)"));
                 }
@@ -138,9 +141,9 @@ public class Agent {
                 if (!in.hasNextLine() || !in.nextLine().trim().toLowerCase().startsWith("s")) return "comando rifiutato dall'utente";
             }
             return safe(() -> {
-                Process pr = new ProcessBuilder("bash", "-c", command).directory(root.toFile())
+                Process pr = new ProcessBuilder(WINDOWS ? "cmd" : "bash", WINDOWS ? "/c" : "-c", command).directory(root.toFile())
                     .redirectErrorStream(true).start();
-                String out = new String(pr.getInputStream().readAllBytes());
+                String out = new String(pr.getInputStream().readAllBytes(), java.nio.charset.Charset.defaultCharset());
                 if (!pr.waitFor(5, TimeUnit.MINUTES)) pr.destroyForcibly();
                 return "exit=" + pr.exitValue() + "\n" + (out.length() > 50000 ? out.substring(out.length() - 50000) : out);
             });
@@ -159,7 +162,7 @@ public class Agent {
                 int n = 0;
                 try (Stream<Path> s = Files.walk(p(dir))) {
                     for (Path f : (Iterable<Path>) s.filter(Files::isRegularFile)::iterator) {
-                        String rel = root.relativize(f).toString();
+                        String rel = root.relativize(f).toString().replace('\\', '/');
                         if (rel.matches("(.*/)?(\\.git|\\.idea|target|build|node_modules|generated)/.*") || !gm.matches(f.getFileName())) continue;
                         java.util.List<String> lines;
                         try { lines = Files.readAllLines(f); } catch (IOException e) { continue; } // binario
@@ -186,7 +189,7 @@ public class Agent {
                 var cmd = new java.util.ArrayList<>(java.util.List.of("git", "diff", "HEAD"));
                 if (path != null && !path.isBlank()) { cmd.add("--"); cmd.add(root.relativize(p(path)).toString()); }
                 Process pr = new ProcessBuilder(cmd).directory(root.toFile()).redirectErrorStream(true).start();
-                String out = new String(pr.getInputStream().readAllBytes());
+                String out = new String(pr.getInputStream().readAllBytes(), java.nio.charset.Charset.defaultCharset());
                 pr.waitFor();
                 return out.isBlank() ? "nessuna modifica" : out.length() > 50000 ? out.substring(0, 50000) + "\n(troncato)" : out;
             });
