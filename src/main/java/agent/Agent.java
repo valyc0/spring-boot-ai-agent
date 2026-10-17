@@ -23,7 +23,7 @@ import org.springframework.context.annotation.Bean;
 public class Agent {
 
     /** Massimo numero di chiamate ai tool per ogni richiesta, e messaggi tenuti in cronologia. */
-    static final int MAX_ITERAZIONI = 40, MAX_MESSAGGI = 30;
+    static final int MAX_ITERAZIONI = 200, MAX_MESSAGGI = 1000;
 
     public static void main(String[] args) {
         SpringApplication.run(Agent.class, args);
@@ -88,11 +88,11 @@ public class Agent {
             if (limit() != null) return limit();
             return safe(() -> {
                 if (!Files.isDirectory(p(dir))) return "la directory non esiste";
-                try (Stream<Path> s = Files.walk(p(dir), 6)) {
+                try (Stream<Path> s = Files.walk(p(dir))) {
                     return s.filter(Files::isRegularFile)
                         .map(x -> root.relativize(x).toString())
                         .filter(x -> !x.startsWith(".git") && !x.startsWith("target"))
-                        .limit(300).collect(Collectors.joining("\n", "", "\n(fine elenco; se vuoto non ci sono file: crea pure i file)"));
+                        .limit(2000).collect(Collectors.joining("\n", "", "\n(fine elenco; se vuoto non ci sono file: crea pure i file)"));
                 }
             });
         }
@@ -141,7 +141,7 @@ public class Agent {
                     .redirectErrorStream(true).start();
                 String out = new String(pr.getInputStream().readAllBytes());
                 if (!pr.waitFor(5, TimeUnit.MINUTES)) pr.destroyForcibly();
-                return "exit=" + pr.exitValue() + "\n" + (out.length() > 8000 ? out.substring(out.length() - 8000) : out);
+                return "exit=" + pr.exitValue() + "\n" + (out.length() > 50000 ? out.substring(out.length() - 50000) : out);
             });
         }
 
@@ -159,11 +159,11 @@ public class Agent {
                         if (rel.startsWith(".git") || rel.startsWith("target")) continue;
                         java.util.List<String> lines;
                         try { lines = Files.readAllLines(f); } catch (IOException e) { continue; } // binario
-                        for (int i = 0; i < lines.size() && out.size() < 100; i++)
+                        for (int i = 0; i < lines.size() && out.size() < 500; i++)
                             if (re.matcher(lines.get(i)).find()) out.add(rel + ":" + (i + 1) + ": " + lines.get(i).strip());
                     }
                 }
-                return out.isEmpty() ? "nessun risultato" : String.join("\n", out) + (out.size() >= 100 ? "\n(troncato a 100 risultati)" : "");
+                return out.isEmpty() ? "nessun risultato" : String.join("\n", out) + (out.size() >= 500 ? "\n(troncato a 500 risultati)" : "");
             });
         }
 
@@ -177,7 +177,7 @@ public class Agent {
                 Process pr = new ProcessBuilder(cmd).directory(root.toFile()).redirectErrorStream(true).start();
                 String out = new String(pr.getInputStream().readAllBytes());
                 pr.waitFor();
-                return out.isBlank() ? "nessuna modifica" : out.length() > 8000 ? out.substring(0, 8000) + "\n(troncato)" : out;
+                return out.isBlank() ? "nessuna modifica" : out.length() > 50000 ? out.substring(0, 50000) + "\n(troncato)" : out;
             });
         }
     }

@@ -32,9 +32,9 @@ Tutto il codice è in [`src/main/java/agent/Agent.java`](src/main/java/agent/Age
 | `readFile` | Legge un file |
 | `writeFile` | Crea o sovrascrive un file (crea le directory mancanti) |
 | `editFile` | Sostituisce un testo esatto in un file esistente |
-| `searchInFiles` | Cerca una regex nei file di testo sotto una directory (`file:riga: testo`, max 100 risultati) |
+| `searchInFiles` | Cerca una regex nei file di testo sotto una directory (`file:riga: testo`, max 500 risultati) |
 | `gitDiff` | Mostra le modifiche non committate (`git diff HEAD`), anche per un solo file |
-| `runCommand` | Esegue un comando shell nella directory di lavoro (timeout 5 min, output limitato a 8000 caratteri). **Chiede conferma `[s/N]`** prima di eseguire; con `AGENT_AUTO=true` non chiede |
+| `runCommand` | Esegue un comando shell nella directory di lavoro (timeout 5 min, output limitato a 50000 caratteri). **Chiede conferma `[s/N]`** prima di eseguire; con `AGENT_AUTO=true` non chiede |
 
 Gli errori dei tool (file inesistente, ecc.) vengono restituiti al modello come testo, così può reagire.
 
@@ -92,7 +92,7 @@ quella directory: i percorsi che ne escono vengono rifiutati.
   Meglio lavorare su un repository git per poter vedere (`git diff`) e annullare le modifiche.
 - Se il modello non supporta il tool calling, l'agente non riesce a fare nulla di utile.
 - Su provider con limiti di token al minuto (es. Groq gratuito) l'agente, in caso di errore 429, aspetta 15 secondi e riprova (max 6 volte).
-- Ogni richiesta può fare al massimo 40 chiamate ai tool (`MAX_ITERAZIONI`); la cronologia tiene gli ultimi 30 messaggi (`MAX_MESSAGGI`), i più vecchi vengono scartati.
+- Ogni richiesta può fare al massimo 200 chiamate ai tool (`MAX_ITERAZIONI`); la cronologia tiene gli ultimi 1000 messaggi (`MAX_MESSAGGI`), i più vecchi vengono scartati.
 - Versioni usate: Spring Boot 3.5.6, Spring AI 1.0.7; allineale a quelle disponibili sul tuo Nexus.
 
 ## Idee per evolverlo
