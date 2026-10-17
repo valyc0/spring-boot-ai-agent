@@ -38,7 +38,8 @@ public class Agent {
             var chat = builder
                 .defaultSystem("Sei un coding agent. Lavori nella directory " + root + ". Usa i tool per esplorare, "
                     + "leggere, creare e modificare file e per compilare (es. 'mvn -q compile'). Se la compilazione "
-                    + "fallisce correggi e riprova. Rispondi in modo breve alla fine.")
+                    + "fallisce correggi e riprova. Rispondi in modo breve alla fine."
+                    + (Files.exists(root.resolve("AGENT.md")) ? "\n\nIstruzioni del progetto (AGENT.md):\n" + Files.readString(root.resolve("AGENT.md")) : ""))
                 .defaultTools(tools)
                 .defaultAdvisors(MessageChatMemoryAdvisor.builder(MessageWindowChatMemory.builder().maxMessages(MAX_MESSAGGI).build()).build())
                 .build();

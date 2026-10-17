@@ -86,6 +86,11 @@ La classe App è stata creata e il progetto compila.
 L'argomento è la directory su cui l'agente può lavorare (default: directory corrente). Ogni tool vede solo
 quella directory: i percorsi che ne escono vengono rifiutati.
 
+## AGENT.md
+
+Se nella directory di lavoro esiste un file `AGENT.md`, il suo contenuto viene aggiunto al system prompt all'avvio:
+usalo per convenzioni, struttura dei package, comandi di build e test del progetto.
+
 ## Limiti e note di sicurezza
 
 - `runCommand` esegue **qualsiasi** comando (dopo la tua conferma, salvo `AGENT_AUTO=true`): usalo su directory e macchine di cui ti fidi.
