@@ -13,7 +13,7 @@ Pensato per ambienti aziendali senza Internet: servono solo un endpoint LLM comp
 Tu (CLI) ──► ChatClient (Spring AI) ──► LLM (API OpenAI-compatible)
                   ▲   │ "chiama il tool X con questi argomenti"
                   │   ▼
-                  └── Tools Java: listFiles, readFile, writeFile, editFile, runCommand
+                  └── Tools Java: listFiles, readFile, writeFile, editFile, searchInFiles, gitDiff, runCommand
 ```
 
 1. Scrivi una richiesta nel terminale.
@@ -32,7 +32,9 @@ Tutto il codice è in [`src/main/java/agent/Agent.java`](src/main/java/agent/Age
 | `readFile` | Legge un file |
 | `writeFile` | Crea o sovrascrive un file (crea le directory mancanti) |
 | `editFile` | Sostituisce un testo esatto in un file esistente |
-| `runCommand` | Esegue un comando shell nella directory di lavoro (timeout 5 min, output limitato a 8000 caratteri) |
+| `searchInFiles` | Cerca una regex nei file di testo sotto una directory (`file:riga: testo`, max 100 risultati) |
+| `gitDiff` | Mostra le modifiche non committate (`git diff HEAD`), anche per un solo file |
+| `runCommand` | Esegue un comando shell nella directory di lavoro (timeout 5 min, output limitato a 8000 caratteri). **Chiede conferma `[s/N]`** prima di eseguire; con `AGENT_AUTO=true` non chiede |
 
 Gli errori dei tool (file inesistente, ecc.) vengono restituiti al modello come testo, così può reagire.
 
@@ -86,14 +88,13 @@ quella directory: i percorsi che ne escono vengono rifiutati.
 
 ## Limiti e note di sicurezza
 
-- `runCommand` esegue **qualsiasi** comando senza chiedere conferma: usalo su directory e macchine di cui ti fidi.
+- `runCommand` esegue **qualsiasi** comando (dopo la tua conferma, salvo `AGENT_AUTO=true`): usalo su directory e macchine di cui ti fidi.
   Meglio lavorare su un repository git per poter vedere (`git diff`) e annullare le modifiche.
 - Se il modello non supporta il tool calling, l'agente non riesce a fare nulla di utile.
 - Su provider con limiti di token al minuto (es. Groq gratuito) l'agente, in caso di errore 429, aspetta 15 secondi e riprova (max 6 volte).
-- Non c'è un limite sul numero di iterazioni dell'agente né sulla dimensione della cronologia.
+- Ogni richiesta può fare al massimo 40 chiamate ai tool (`MAX_ITERAZIONI`); la cronologia tiene gli ultimi 30 messaggi (`MAX_MESSAGGI`), i più vecchi vengono scartati.
 - Versioni usate: Spring Boot 3.5.6, Spring AI 1.0.7; allineale a quelle disponibili sul tuo Nexus.
 
 ## Idee per evolverlo
 
-Conferma prima di eseguire comandi, tool `git_diff`, ricerca testuale nei file (`searchInFiles`),
-limite di iterazioni, riassunto della cronologia per risparmiare token.
+Riassunto vero della cronologia (invece della finestra fissa), conferma anche per `writeFile`/`editFile`, limiti configurabili da `.env`.
