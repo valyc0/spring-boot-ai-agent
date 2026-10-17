@@ -32,7 +32,7 @@ Tutto il codice è in [`src/main/java/agent/Agent.java`](src/main/java/agent/Age
 | `readFile` | Legge un file |
 | `writeFile` | Crea o sovrascrive un file (crea le directory mancanti) |
 | `editFile` | Sostituisce un testo esatto in un file esistente |
-| `searchInFiles` | Cerca una regex nei file di testo sotto una directory (`file:riga: testo`, max 500 risultati) |
+| `searchInFiles` | Cerca una regex (case-insensitive) nei file di testo sotto una directory, con filtro glob (`*.java`) e 2 righe di contesto (`file:riga: testo`, max 500 risultati; ignora `.git`, `.idea`, `target`, `build`, `node_modules`, `generated`) |
 | `gitDiff` | Mostra le modifiche non committate (`git diff HEAD`), anche per un solo file |
 | `runCommand` | Esegue un comando shell nella directory di lavoro (timeout 5 min, output limitato a 50000 caratteri). **Chiede conferma `[s/N]`** prima di eseguire; con `AGENT_AUTO=true` non chiede |
 

@@ -145,25 +145,35 @@ public class Agent {
             });
         }
 
-        @Tool(description = "Cerca un testo (regex Java) nei file di testo sotto una directory; restituisce righe 'file:riga: testo'")
+        @Tool(description = "Cerca un testo (regex Java, case-insensitive) nei file di testo sotto una directory; restituisce 'file:riga: testo' con 2 righe di contesto ('file-riga- testo')")
         String searchInFiles(@ToolParam(description = "espressione regolare") String pattern,
-                             @ToolParam(description = "directory relativa, '.' per la root") String dir) {
-            System.out.println("  [searchInFiles] " + pattern + " in " + dir);
+                             @ToolParam(description = "directory relativa, '.' per la root") String dir,
+                             @ToolParam(description = "glob sul nome file, es. '*.java'; vuoto per tutti") String glob) {
+            System.out.println("  [searchInFiles] " + pattern + " in " + dir + " " + glob);
             if (limit() != null) return limit();
             return safe(() -> {
-                var re = java.util.regex.Pattern.compile(pattern);
+                var re = java.util.regex.Pattern.compile(pattern, java.util.regex.Pattern.CASE_INSENSITIVE);
+                var gm = FileSystems.getDefault().getPathMatcher("glob:" + (glob == null || glob.isBlank() ? "*" : glob));
                 var out = new java.util.ArrayList<String>();
+                int n = 0;
                 try (Stream<Path> s = Files.walk(p(dir))) {
                     for (Path f : (Iterable<Path>) s.filter(Files::isRegularFile)::iterator) {
                         String rel = root.relativize(f).toString();
-                        if (rel.startsWith(".git") || rel.startsWith("target")) continue;
+                        if (rel.matches("(.*/)?(\\.git|\\.idea|target|build|node_modules|generated)/.*") || !gm.matches(f.getFileName())) continue;
                         java.util.List<String> lines;
                         try { lines = Files.readAllLines(f); } catch (IOException e) { continue; } // binario
-                        for (int i = 0; i < lines.size() && out.size() < 500; i++)
-                            if (re.matcher(lines.get(i)).find()) out.add(rel + ":" + (i + 1) + ": " + lines.get(i).strip());
+                        int last = -1;
+                        for (int i = 0; i < lines.size() && n < 500; i++) {
+                            if (!re.matcher(lines.get(i)).find()) continue;
+                            n++;
+                            if (i - 2 > last + 1 && last >= 0) out.add("--");
+                            for (int j = Math.max(last + 1, i - 2); j <= Math.min(lines.size() - 1, i + 2); j++)
+                                out.add(rel + (j == i ? ":" : "-") + (j + 1) + (j == i ? ": " : "- ") + lines.get(j).strip());
+                            last = Math.min(lines.size() - 1, i + 2);
+                        }
                     }
                 }
-                return out.isEmpty() ? "nessun risultato" : String.join("\n", out) + (out.size() >= 500 ? "\n(troncato a 500 risultati)" : "");
+                return n == 0 ? "nessun risultato" : String.join("\n", out) + (n >= 500 ? "\n(troncato a 500 risultati)" : "");
             });
         }
 
