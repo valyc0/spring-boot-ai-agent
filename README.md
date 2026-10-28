@@ -18,9 +18,14 @@ Tu (CLI) ──► ChatClient (Spring AI) ──► LLM (API OpenAI-compatible)
 
 1. Scrivi una richiesta nel terminale.
 2. Il modello decide quale tool usare; Spring AI esegue il metodo Java corrispondente e restituisce il
-   risultato al modello.
+   risultato al modello. La risposta arriva in streaming, quindi vedi il testo mentre viene generato.
 3. Il ciclo si ripete (esplora, scrive, compila, corregge) finché il modello risponde senza chiamare altri tool.
 4. La conversazione resta in memoria, quindi puoi fare richieste successive ("ora aggiungi un test").
+
+Mentre l'agente sta ragionando o eseguendo un comando, premi **ESC** per interromperlo: la richiesta
+viene annullata (anche il comando shell in corso) e torni subito al prompt. Il turno interrotto non viene
+salvato in cronologia. L'interruzione con ESC richiede un terminale Unix; se stdin non è un TTY (o su
+Windows) il tasto non è disponibile e si può usare Ctrl+C per terminare il processo.
 
 Tutto il codice è in [`src/main/java/agent/Agent.java`](src/main/java/agent/Agent.java).
 
@@ -68,6 +73,12 @@ Le variabili possono essere anche variabili d'ambiente. Il file `.env` è esclus
 ```bash
 mvn package -DskipTests
 java -jar target/coding-agent-0.1.jar /percorso/del/progetto
+```
+
+Oppure, per avviarlo con Maven e `AGENT_AUTO=true` (nessuna conferma per `runCommand`):
+
+```bash
+./run.sh /percorso/del/progetto
 ```
 
 Esempio di sessione:
