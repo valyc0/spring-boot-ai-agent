@@ -19,6 +19,8 @@ Tu (CLI) ──► ChatClient (Spring AI) ──► LLM (API OpenAI-compatible)
 1. Scrivi una richiesta nel terminale.
 2. Il modello decide quale tool usare; Spring AI esegue il metodo Java corrispondente e restituisce il
    risultato al modello. La risposta arriva in streaming, quindi vedi il testo mentre viene generato.
+   Se il modello espone il reasoning (`delta.reasoning_content`, es. DeepSeek) e `AGENT_REASONING=true`,
+   viene mostrato in streaming, in corsivo (se il terminale lo supporta), con il prefisso `[reasoning]`, separato dalla risposta finale (`[risposta]`).
 3. Il ciclo si ripete (esplora, scrive, compila, corregge) finché il modello risponde senza chiamare altri tool.
 4. La conversazione resta in memoria, quindi puoi fare richieste successive ("ora aggiungi un test").
 
@@ -64,6 +66,7 @@ LLM_KEY=la-tua-chiave
 | `LLM_URL` | URL base **senza** `/v1`: Spring AI aggiunge `/v1/chat/completions` |
 | `LLM_MODEL` | Nome del modello |
 | `LLM_KEY` | API key (qualsiasi valore se l'endpoint non la richiede, es. Ollama) |
+| `AGENT_REASONING` | Se `true`, mostra il reasoning del modello (default `false`) |
 
 Esempi di URL: Ollama `http://host:11434`, Groq `https://api.groq.com/openai`, OpenRouter `https://openrouter.ai/api`.
 Le variabili possono essere anche variabili d'ambiente. Il file `.env` è escluso da git.
@@ -109,7 +112,7 @@ usalo per convenzioni, struttura dei package, comandi di build e test del proget
 - Se il modello non supporta il tool calling, l'agente non riesce a fare nulla di utile.
 - Su provider con limiti di token al minuto (es. Groq gratuito) l'agente, in caso di errore 429, aspetta 15 secondi e riprova (max 6 volte).
 - Ogni richiesta può fare al massimo 200 chiamate ai tool (`MAX_ITERAZIONI`); la cronologia tiene gli ultimi 1000 messaggi (`MAX_MESSAGGI`), i più vecchi vengono scartati.
-- Versioni usate: Spring Boot 3.5.6, Spring AI 1.0.7; allineale a quelle disponibili sul tuo Nexus.
+- Versioni usate: Spring Boot 3.5.6, Spring AI 1.1.8; allineale a quelle disponibili sul tuo Nexus.
 
 ## Idee per evolverlo
 

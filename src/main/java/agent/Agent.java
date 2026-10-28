@@ -62,13 +62,16 @@ public class Agent {
     static final boolean WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
 
     @Bean
-    CommandLineRunner cli(ChatClient.Builder builder) {
+    CommandLineRunner cli(ChatClient.Builder builder, org.springframework.core.env.Environment env) {
         return args -> {
             Path root = Path.of(args.length > 0 ? args[0] : ".").toAbsolutePath().normalize();
             var console = new Console();
             Runtime.getRuntime().addShutdownHook(new Thread(console::restore));
             var cancel = new Cancel();
-            var tools = new Tools(root, console, new int[1], MAX_ITERAZIONI, !"true".equalsIgnoreCase(System.getenv("AGENT_AUTO")), cancel);
+            boolean auto = env.getProperty("AGENT_AUTO", Boolean.class, false);
+            boolean showReasoning = env.getProperty("AGENT_REASONING", Boolean.class, false);
+            var reasoning = new ReasoningPrinter(showReasoning);
+            var tools = new Tools(root, console, new int[1], MAX_ITERAZIONI, !auto, cancel, reasoning::end);
             var memory = MessageWindowChatMemory.builder().maxMessages(MAX_MESSAGGI).build();
             var chat = builder
                 .defaultSystem("Sei un coding agent. Lavori nella directory " + root + " (OS: " + System.getProperty("os.name")
@@ -80,7 +83,8 @@ public class Agent {
                 .defaultAdvisors(MessageChatMemoryAdvisor.builder(memory).build())
                 .build();
             System.out.println("Agent su " + root + " (exit per uscire" + (console.canInterrupt() ? ", ESC per interrompere" : "")
-                + ", AGENT_AUTO=true per non chiedere conferme)");
+                + ", AGENT_AUTO=true per non chiedere conferme"
+                + (showReasoning ? "" : ", AGENT_REASONING=true per vedere il reasoning") + ")");
             String conversationId = "cli";
             while (true) {
                 String q = console.readLine("\n> ");
@@ -98,11 +102,20 @@ public class Agent {
                     var tail = new AtomicReference<>("");
                     Disposable sub = chat.prompt(q)
                         .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
-                        .stream().content()
-                        .doOnNext(s -> {
-                            System.out.print(s);
-                            System.out.flush();
-                            tail.set(s);
+                        .stream().chatResponse()
+                        .doOnNext(r -> {
+                            if (r == null || r.getResult() == null) return;
+                            var out = r.getResult().getOutput();
+                            var meta = out.getMetadata();
+                            Object think = meta == null ? null : meta.get("reasoningContent");
+                            if (think instanceof String s && !s.isEmpty()) reasoning.reasoning(s);
+                            String text = out.getText();
+                            if (text != null && !text.isEmpty()) {
+                                reasoning.content();
+                                System.out.print(text);
+                                System.out.flush();
+                                tail.set(text);
+                            }
                         })
                         .doFinally(signal -> done.countDown())
                         .subscribe(v -> { }, error::set);
@@ -112,16 +125,17 @@ public class Agent {
                     } finally {
                         console.stopWatching();
                     }
+                    boolean hadReasoning = reasoning.end();
                     if (cancel.isCancelled()) {
                         sub.dispose();
-                        if (!tail.get().endsWith("\n")) System.out.println();
+                        if (!hadReasoning && !tail.get().endsWith("\n")) System.out.println();
                         System.out.println("[interrotto]");
                         restore(memory, conversationId, snapshot);
                         break;
                     }
                     Throwable e = error.get();
                     if (e == null) {
-                        if (!tail.get().endsWith("\n")) System.out.println();
+                        if (!hadReasoning && !tail.get().endsWith("\n")) System.out.println();
                         break;
                     }
                     boolean limite = String.valueOf(e.getMessage()).contains("429");
@@ -138,6 +152,45 @@ public class Agent {
     private static void restore(ChatMemory memory, String conversationId, List<Message> snapshot) {
         memory.clear(conversationId);
         if (!snapshot.isEmpty()) memory.add(conversationId, snapshot);
+    }
+
+    /** Mostra in streaming il reasoning del modello (delta.reasoning_content), in corsivo se abilitato. */
+    static final class ReasoningPrinter {
+        private static final boolean ANSI = System.console() != null;
+        private final boolean enabled;
+        private volatile boolean open;
+
+        ReasoningPrinter(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        void reasoning(String s) {
+            if (!enabled) return;
+            if (!open) {
+                if (ANSI) System.out.print("\u001b[3m");
+                System.out.print("[reasoning] ");
+                open = true;
+            }
+            System.out.print(s);
+            System.out.flush();
+        }
+
+        void content() {
+            if (enabled && open) {
+                if (ANSI) System.out.print("\u001b[0m");
+                System.out.print("\n[risposta] ");
+                open = false;
+            }
+        }
+
+        /** Chiude il blocco di reasoning, se aperto. Ritorna true se ha stampato qualcosa. */
+        boolean end() {
+            if (!enabled || !open) return false;
+            if (ANSI) System.out.print("\u001b[0m");
+            System.out.println();
+            open = false;
+            return true;
+        }
     }
 
     /** Flag condiviso tra watcher della tastiera e tool, così l'interruzione ferma anche i comandi in corso. */
@@ -285,12 +338,17 @@ public class Agent {
         }
     }
 
-    record Tools(Path root, Console console, int[] calls, int maxCalls, boolean confirm, Cancel cancel) {
+    record Tools(Path root, Console console, int[] calls, int maxCalls, boolean confirm, Cancel cancel, Runnable beforeTool) {
 
         /** Ritorna un messaggio di errore se l'utente ha interrotto o il limite di chiamate è superato, altrimenti null. */
         private String limit() {
             if (cancel.isCancelled()) return "interrotto dall'utente";
             return ++calls[0] > maxCalls ? "ERRORE: limite di " + maxCalls + " chiamate ai tool raggiunto, fermati e rispondi" : null;
+        }
+
+        private void begin(String name, String detail) {
+            beforeTool.run();
+            System.out.println("  [" + name + "] " + detail);
         }
 
         private static String safe(java.util.concurrent.Callable<String> c) {
@@ -305,7 +363,7 @@ public class Agent {
 
         @Tool(description = "Elenca ricorsivamente i file di una directory (relativa)")
         String listFiles(@ToolParam(description = "directory relativa, '.' per la root") String dir) {
-            System.out.println("  [listFiles] " + dir);
+            begin("listFiles", dir);
             String err = limit();
             if (err != null) return err;
             return safe(() -> {
@@ -322,7 +380,7 @@ public class Agent {
 
         @Tool(description = "Legge il contenuto di un file")
         String readFile(@ToolParam(description = "percorso relativo") String path) {
-            System.out.println("  [readFile] " + path);
+            begin("readFile", path);
             String err = limit();
             if (err != null) return err;
             return safe(() -> Files.readString(p(path)));
@@ -331,7 +389,7 @@ public class Agent {
         @Tool(description = "Crea o sovrascrive un file con il contenuto completo (crea le directory mancanti)")
         String writeFile(@ToolParam(description = "percorso relativo") String path,
                          @ToolParam(description = "contenuto completo") String content) {
-            System.out.println("  [writeFile] " + path);
+            begin("writeFile", path);
             String err = limit();
             if (err != null) return err;
             return safe(() -> {
@@ -343,7 +401,7 @@ public class Agent {
 
         @Tool(description = "Modifica un file sostituendo un testo esatto (old deve comparire una volta sola)")
         String editFile(String path, String old, String replacement) {
-            System.out.println("  [editFile] " + path);
+            begin("editFile", path);
             String err = limit();
             if (err != null) return err;
             return safe(() -> {
@@ -356,7 +414,7 @@ public class Agent {
 
         @Tool(description = "Esegue un comando shell nella root (es. mvn -q compile) e restituisce exit code e output")
         String runCommand(String command) {
-            System.out.println("  [runCommand] " + command);
+            begin("runCommand", command);
             String err = limit();
             if (err != null) return err;
             if (confirm) {
@@ -399,7 +457,7 @@ public class Agent {
         String searchInFiles(@ToolParam(description = "espressione regolare") String pattern,
                              @ToolParam(description = "directory relativa, '.' per la root") String dir,
                              @ToolParam(description = "glob sul nome file, es. '*.java'; vuoto per tutti") String glob) {
-            System.out.println("  [searchInFiles] " + pattern + " in " + dir + " " + glob);
+            begin("searchInFiles", pattern + " in " + dir + " " + glob);
             String err = limit();
             if (err != null) return err;
             return safe(() -> {
@@ -431,7 +489,7 @@ public class Agent {
 
         @Tool(description = "Mostra le modifiche non ancora committate (git diff HEAD), opzionalmente per un solo file")
         String gitDiff(@ToolParam(description = "file relativo, vuoto per tutto") String path) {
-            System.out.println("  [gitDiff] " + path);
+            begin("gitDiff", path);
             String err = limit();
             if (err != null) return err;
             return safe(() -> {
