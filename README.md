@@ -13,7 +13,7 @@ Pensato per ambienti aziendali senza Internet: servono solo un endpoint LLM comp
 Tu (CLI) ──► ChatClient (Spring AI) ──► LLM (API OpenAI-compatible)
                   ▲   │ "chiama il tool X con questi argomenti"
                   │   ▼
-                  └── Tools Java: listFiles, readFile, writeFile, editFile, searchInFiles, gitDiff, runCommand
+                  └── Tools Java: listFiles, readFile, writeFile, editFile, searchInFiles, gitDiff, runCommand, webSearch, readWebPage
 ```
 
 1. Scrivi una richiesta nel terminale.
@@ -42,6 +42,8 @@ Tutto il codice è in [`src/main/java/agent/Agent.java`](src/main/java/agent/Age
 | `searchInFiles` | Cerca una regex (case-insensitive) nei file di testo sotto una directory, con filtro glob (`*.java`) e 2 righe di contesto (`file:riga: testo`, max 500 risultati; ignora `.git`, `.idea`, `target`, `build`, `node_modules`, `generated`) |
 | `gitDiff` | Mostra le modifiche non committate (`git diff HEAD`), anche per un solo file |
 | `runCommand` | Esegue un comando shell nella directory di lavoro (timeout 5 min, output limitato a 50000 caratteri). **Chiede conferma `[s/N]`** prima di eseguire; con `AGENT_AUTO=true` non chiede |
+| `webSearch` | Cerca sul web con DuckDuckGo (nessuna API key) e restituisce titolo, URL e descrizione dei primi 10 risultati. **Disattivato di default**: si abilita con `AGENT_WEBSEARCH=true` |
+| `readWebPage` | Scarica una pagina web e ne restituisce il testo senza HTML (max 30000 caratteri). Attivo solo con `AGENT_WEBSEARCH=true` |
 
 Gli errori dei tool (file inesistente, ecc.) vengono restituiti al modello come testo, così può reagire.
 
@@ -67,6 +69,7 @@ LLM_KEY=la-tua-chiave
 | `LLM_MODEL` | Nome del modello |
 | `LLM_KEY` | API key (qualsiasi valore se l'endpoint non la richiede, es. Ollama) |
 | `AGENT_REASONING` | Se `true`, mostra il reasoning del modello (default `false`) |
+| `AGENT_WEBSEARCH` | Se `true`, abilita i tool `webSearch` e `readWebPage`: il modello cerca su internet da solo quando gli servono informazioni (default `false`) |
 
 Esempi di URL: Ollama `http://host:11434`, Groq `https://api.groq.com/openai`, OpenRouter `https://openrouter.ai/api`.
 Le variabili possono essere anche variabili d'ambiente. Il file `.env` è escluso da git.
@@ -78,7 +81,7 @@ mvn package -DskipTests
 java -jar target/coding-agent-0.1.jar /percorso/del/progetto
 ```
 
-Oppure, per avviarlo con Maven e `AGENT_AUTO=true` (nessuna conferma per `runCommand`):
+Oppure, per avviarlo con Maven, `AGENT_AUTO=true` (nessuna conferma per `runCommand`) e `AGENT_WEBSEARCH=true` (ricerca web attiva):
 
 ```bash
 ./run.sh /percorso/del/progetto

@@ -1,12 +1,15 @@
 package agent;
 
 import java.io.*;
-import java.nio.charset.Charset;
+import java.net.*;
+import java.net.http.*;
+import java.nio.charset.*;
 import java.nio.file.*;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
-import java.util.regex.Pattern;
+import java.util.regex.*;
 import java.util.stream.*;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -47,7 +50,8 @@ public class Agent {
             var console = new Console();
             Runtime.getRuntime().addShutdownHook(new Thread(console::restore));
             var cancel = new AtomicBoolean();
-            boolean auto = env.getProperty("AGENT_AUTO", Boolean.class, false), showReasoning = env.getProperty("AGENT_REASONING", Boolean.class, false);
+            boolean auto = env.getProperty("AGENT_AUTO", Boolean.class, false), showReasoning = env.getProperty("AGENT_REASONING", Boolean.class, false),
+                web = env.getProperty("AGENT_WEBSEARCH", Boolean.class, false);
             var reasoning = new ReasoningPrinter(showReasoning);
             var tools = new Tools(root, console, new int[1], !auto, cancel, reasoning::end);
             var memory = MessageWindowChatMemory.builder().maxMessages(MAX_MESSAGGI).build();
@@ -56,10 +60,12 @@ public class Agent {
                     + ", shell dei comandi: " + (WINDOWS ? "cmd" : "bash") + "). Usa i tool per esplorare, "
                     + "leggere, creare e modificare file e per compilare (es. 'mvn -q compile'). Se la compilazione "
                     + "fallisce correggi e riprova. Rispondi in modo breve alla fine."
+                    + (web ? " Se ti servono informazioni che non hai (documentazione, versioni di librerie, errori, API) "
+                        + "cercale su internet con webSearch e leggi le pagine utili con readWebPage." : "")
                     + (Files.exists(md) ? "\n\nIstruzioni del progetto (AGENT.md):\n" + Files.readString(md) : ""))
-                .defaultTools(tools).defaultAdvisors(MessageChatMemoryAdvisor.builder(memory).build()).build();
+                .defaultTools(web ? new Object[] {tools, new WebTools(tools)} : new Object[] {tools}).defaultAdvisors(MessageChatMemoryAdvisor.builder(memory).build()).build();
             System.out.println("Agent su " + root + " (exit per uscire" + (console.canInterrupt() ? ", ESC per interrompere" : "")
-                + ", AGENT_AUTO=true per non chiedere conferme" + (showReasoning ? "" : ", AGENT_REASONING=true per vedere il reasoning") + ")");
+                + ", AGENT_AUTO=true per non chiedere conferme" + (web ? "" : ", AGENT_WEBSEARCH=true per la ricerca web") + (showReasoning ? "" : ", AGENT_REASONING=true per vedere il reasoning") + ")");
             String id = "cli";
             for (String q; (q = console.readLine("\n> ")) != null && !(q = q.trim()).equalsIgnoreCase("exit"); ) {
                 if (q.isEmpty()) continue;
@@ -342,6 +348,42 @@ public class Agent {
                 String out = new String(pr.getInputStream().readAllBytes(), Charset.defaultCharset());
                 pr.waitFor();
                 return out.isBlank() ? "nessuna modifica" : out.length() > 50000 ? out.substring(0, 50000) + "\n(troncato)" : out;
+            });
+        }
+    }
+
+    /** Ricerca web su DuckDuckGo (HTML, senza API key) e lettura pagine, registrate solo con AGENT_WEBSEARCH=true. */
+    record WebTools(Tools tools) {
+        static final Pattern RESULT = Pattern.compile(
+            "class=\"result__a\" href=\"[^\"]*?uddg=([^&\"]+)[^\"]*\">(.*?)</a>.*?class=\"result__snippet\"[^>]*>(.*?)</a>", Pattern.DOTALL);
+
+        static String get(String url) throws Exception {
+            var req = HttpRequest.newBuilder(URI.create(url)).header("User-Agent", "Mozilla/5.0").timeout(Duration.ofSeconds(20)).build();
+            return HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build().send(req, HttpResponse.BodyHandlers.ofString()).body();
+        }
+
+        static String text(String html) {
+            String t = Pattern.compile("&#(x?)([0-9a-fA-F]+);").matcher(html.replaceAll("<[^>]+>", ""))
+                .replaceAll(m -> Matcher.quoteReplacement(Character.toString(Integer.parseInt(m.group(2), m.group(1).isEmpty() ? 10 : 16))));
+            return t.replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ").replace("&amp;", "&").strip();
+        }
+
+        @Tool(description = "Cerca sul web (DuckDuckGo) e restituisce titolo, URL e descrizione dei primi risultati")
+        String webSearch(@ToolParam(description = "testo da cercare") String query) {
+            return tools.run("webSearch", query, () -> {
+                String out = RESULT.matcher(get("https://html.duckduckgo.com/html/?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8))).results().limit(10)
+                    .map(m -> text(m.group(2)) + "\n" + URLDecoder.decode(m.group(1), StandardCharsets.UTF_8) + "\n" + text(m.group(3)))
+                    .collect(Collectors.joining("\n\n"));
+                return out.isEmpty() ? "nessun risultato" : out;
+            });
+        }
+
+        @Tool(description = "Scarica una pagina web (http/https) e ne restituisce il testo, senza HTML")
+        String readWebPage(@ToolParam(description = "URL completo della pagina") String url) {
+            return tools.run("readWebPage", url, () -> {
+                String t = text(get(url).replaceAll("(?is)<(script|style|head|nav|footer|svg)\\b.*?</\\1>", "")
+                    .replaceAll("(?i)<(br|/p|/div|/li|/h\\d|/tr)[^>]*>", "\n")).replaceAll("[ \t]+", " ").replaceAll("\\s*\n\\s*", "\n");
+                return t.length() > 30000 ? t.substring(0, 30000) + "\n(troncato)" : t;
             });
         }
     }
